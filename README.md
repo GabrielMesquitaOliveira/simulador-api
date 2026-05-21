@@ -143,6 +143,38 @@ graph LR
 
 ---
 
+## ⚙️ Camada de Serviço (Service Layer - Subpacote `service`)
+
+A camada **Service** atua como orquestradora dos casos de uso da nossa aplicação. Ela é responsável por gerenciar limites transacionais e traduzir chamadas da API externa em fluxos de domínio ricos, coordenando a persistência física.
+
+```mermaid
+graph TD
+    Service[SimulationService]
+    Repo[SimulationRepository]
+    Domain[Simulation]
+    Exc[SimulationNotFoundException]
+
+    Service --> Repo
+    Service --> Domain
+    Service -. "Dispara se nulo" .-> Exc
+```
+
+### 1. Orquestração Transacional com CDI
+* **`SimulationService` (CDI `@ApplicationScoped`)**:
+  * **`simulateAndSave` (anotado com `@Transactional`)**:
+    * Recebe os tipos brutos da apresentação (`BigDecimal principal`, `BigDecimal interestRatePercent`, `int durationMonths`).
+    * Instancia de forma Fail-Fast os Value Objects do domínio (`Money` e `InterestRate`), disparando automaticamente as asserções de negócio estruturadas.
+    * Invoca a fórmula de juros através da estratégia `CompoundInterestStrategy`.
+    * Traduz o agregado imutável de domínio para a entidade persistente `SimulationEntity`.
+    * Gera e vincula o identificador exclusivo UUID da simulação e persiste o agregado de forma transacional completa com seus passos em cascata.
+  * **`findById`**:
+    * Consulta a persistência e reconstrói o agregado. Dispara a exceção de negócio `SimulationNotFoundException` de forma expressiva caso o registro não exista na base.
+
+### 2. Exceções de Negócio
+* **`SimulationNotFoundException`**: Exceção customizada de tempo de execução (`RuntimeException`) utilizada para sinalizar buscas por chaves inexistentes no banco de dados, facilitando a conversão limpa para retornos HTTP `404 Not Found` nas camadas de exposição superior.
+
+---
+
 ## 📝 Documentação Exaustiva (JavaDocs)
 
 A fim de fornecer clareza máxima e guiar os avaliadores, **todas as classes, records, construtores e métodos públicos do domínio foram documentados com JavaDocs exaustivos em português**. Cada método detalha o comportamento esperado, as validações Fail-Fast aplicadas e as exceções que podem ser lançadas.
@@ -166,24 +198,27 @@ A API estará disponível em `http://localhost:8080`.
 
 ## 🧪 Qualidade e Testes Automatizados (TDD & Testes Integrados)
 
-Toda a lógica da camada de domínio foi desenvolvida com foco total em cobertura e qualidade utilizando TDD. Os testes unitários do domínio são puros e executados de forma extremamente rápida, enquanto os testes integrados da persistência validam o banco de dados.
+Toda a lógica da camada de domínio foi desenvolvida com foco total em cobertura e qualidade utilizando TDD. Os testes unitários do domínio são puros e executados de forma extremamente rápida, enquanto os testes integrados validam o banco de dados e a orquestração do serviço.
 
 ### Executar a Suíte de Testes
-Para executar todos os **25 testes** (23 unitários puros do domínio + 2 testes integrados de banco de dados):
+Para executar todos os **32 testes** (23 unitários puros do domínio + 2 testes integrados de banco de dados + 7 testes integrados da camada de serviço):
 ```bash
 ./mvnw clean test
 ```
 
-### Testes Integrados de Persistência com Banco H2
-* **`SimulationRepositoryTest`**: Teste anotado com `@QuarkusTest` que roda sobre o banco em memória H2 no profile `%test`.
-* Valida a inserção em cascata (salva a raiz do agregado e insere automaticamente todos os passos associados), a reconstrução correta do domínio imutável a partir do banco e a exclusão em cascata física.
+### Testes Integrados da Camada de Persistência e Serviço
+* **`SimulationRepositoryTest`**: Valida a persistência física em cascata, busca direta no Hibernate e exclusão em cascata do agregado.
+* **`SimulationServiceTest`**: Anotado com `@QuarkusTest` rodando sob H2 in-memory no profile `%test`. Garante:
+  * O fluxo feliz de cálculo, persistência e retorno.
+  * O lançamento correto de `SimulationNotFoundException` sob chaves inválidas.
+  * A propagação de exceções de domínio Fail-Fast do `DomainValidator` sob parâmetros numéricos inválidos antes do banco de dados ser afetado.
 
 ### Verificação do JaCoCo (Cobertura > 80%)
 A validação de compilação, empacotamento e integridade dos limites de cobertura do JaCoCo é executada via:
 ```bash
 ./mvnw clean verify
 ```
-Nossos testes cobrem **100% de linhas e caminhos lógicos** das classes de domínio e da persistência, superando amplamente a barreira eliminatória de 80% estabelecida no projeto.
+Nossos testes cobrem **100% de linhas e caminhos lógicos** das classes de domínio, persistência e serviço, superando amplamente a barreira eliminatória de 80% estabelecida no projeto.
 
 ---
 
