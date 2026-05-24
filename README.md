@@ -175,6 +175,69 @@ graph TD
 
 ---
 
+## 🌐 Camada de Exposição (Resource Layer - Subpacote `resource`)
+
+A camada **Resource** é responsável exclusivamente pela exposição dos endpoints HTTP/JSON, mapeamento para os DTOs (Data Transfer Objects) imutáveis e validações básicas de transporte. 
+
+Seguindo estritamente as regras de **DDD Pragmático** e as especificações de conformidade do **Edital do Hackathon**, todos os contratos externos (JSON de envio e resposta) foram modelados em **português estrito**, enquanto o domínio interno preserva as melhores práticas de desenvolvimento limpo corporativo em inglês.
+
+```mermaid
+graph LR
+    subgraph Resource [Camada REST / DTOs]
+        DTO_In["SimulationRequest (valorInicial, taxaJurosMensal, prazoMeses)"]
+        DTO_Out["SimulationResponse (valorTotalFinal, valorTotalJuros, memoriaCalculo)"]
+    end
+    subgraph Interno [Negócio / Persistência]
+        Service[SimulationService]
+        Domain[Simulation]
+    end
+
+    DTO_In -- "Mapeia para" --> Service
+    Service --> Domain
+    Domain -- "Retorna e traduz" --> DTO_Out
+```
+
+### 1. Payload de Entrada (Simular Financiamento)
+* **Rota:** `POST /simulacoes`
+* **JSON de Entrada:**
+  ```json
+  {
+      "valorInicial": 1000.00,
+      "taxaJurosMensal": 1.5,
+      "prazoMeses": 12
+  }
+  ```
+
+### 2. Contrato de Retorno (Sucesso)
+* **Status HTTP:** `201 Created` ou `200 OK` (Busca por ID `GET /simulacoes/{id}`)
+* **JSON de Retorno:**
+  ```json
+  {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "valorInicial": 1000.00,
+      "taxaJurosMensal": 1.50,
+      "prazoMeses": 12,
+      "valorTotalFinal": 1195.62,
+      "valorTotalJuros": 195.62,
+      "memoriaCalculo": [
+          {
+              "mes": 1,
+              "saldoInicial": 1000.00,
+              "juro": 15.00,
+              "saldoFinal": 1015.00
+          },
+          {
+              "mes": 2,
+              "saldoInicial": 1015.00,
+              "juro": 15.23,
+              "saldoFinal": 1030.23
+          }
+      ]
+  }
+  ```
+
+---
+
 ## 📝 Documentação Exaustiva (JavaDocs)
 
 A fim de fornecer clareza máxima e guiar os avaliadores, **todas as classes, records, construtores e métodos públicos do domínio foram documentados com JavaDocs exaustivos em português**. Cada método detalha o comportamento esperado, as validações Fail-Fast aplicadas e as exceções que podem ser lançadas.

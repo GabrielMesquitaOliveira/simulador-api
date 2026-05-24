@@ -1,21 +1,26 @@
 package com.simulador.financiamento.resource.dto;
 
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
 import java.time.LocalDateTime;
 
 /**
  * Record DTO imutável que padroniza o formato de resposta de erros HTTP da API.
- * 
- * @param timestamp O carimbo de data/hora em que a falha ocorreu.
- * @param status O código de status HTTP correspondente.
- * @param error O título legível ou categoria do erro.
- * @param message O detalhamento descritivo sobre o motivo do erro.
- * @param path A URI do recurso solicitada que gerou a falha.
  */
+@Schema(name = "ErrorResponse", description = "Estrutura padrão de retorno para mensagens de erro HTTP")
 public record ErrorResponse(
+    @Schema(description = "Carimbo de data e hora em que a falha foi registrada na API", examples = {"2026-05-24T12:00:00"}, required = true)
     LocalDateTime timestamp,
+
+    @Schema(description = "Código de status HTTP associado à falha", examples = {"400"}, required = true)
     int status,
+
+    @Schema(description = "Categoria descritiva padrão ou tipo simplificado do erro HTTP", examples = {"Bad Request"}, required = true)
     String error,
+
+    @Schema(description = "Mensagem altamente descritiva sobre o motivo da falha ou regra violada", examples = {"O valor monetário não pode ser negativo."}, required = true)
     String message,
+
+    @Schema(description = "URI relativa ou endpoint que originou a requisição com falha", examples = {"/simulacoes"}, required = true)
     String path
 ) {
     /**

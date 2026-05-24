@@ -16,9 +16,9 @@ class SimulationResourceTest {
     void deveCriarSimulacaoComSucesso() {
         String payload = """
             {
-                "principal": 50000.00,
-                "interestRatePercent": 1.75,
-                "durationMonths": 24
+                "valorInicial": 50000.00,
+                "taxaJurosMensal": 1.75,
+                "prazoMeses": 24
             }
             """;
 
@@ -31,15 +31,15 @@ class SimulationResourceTest {
             .statusCode(201)
             .header("Location", containsString("/simulacoes/"))
             .body("id", notNullValue())
-            .body("principal", equalTo(50000.0f))
-            .body("interestRate", equalTo(0.01750000f))
-            .body("durationMonths", equalTo(24))
-            .body("finalBalance", notNullValue())
-            .body("totalInterest", notNullValue())
-            .body("steps", hasSize(24))
-            .body("steps[0].month", equalTo(1))
-            .body("steps[0].initialBalance", equalTo(50000.0f))
-            .body("steps[23].month", equalTo(24));
+            .body("valorInicial", equalTo(50000.0f))
+            .body("taxaJurosMensal", equalTo(1.75f))
+            .body("prazoMeses", equalTo(24))
+            .body("valorTotalFinal", notNullValue())
+            .body("valorTotalJuros", notNullValue())
+            .body("memoriaCalculo", hasSize(24))
+            .body("memoriaCalculo[0].mes", equalTo(1))
+            .body("memoriaCalculo[0].saldoInicial", equalTo(50000.0f))
+            .body("memoriaCalculo[23].mes", equalTo(24));
     }
 
     @Test
@@ -47,9 +47,9 @@ class SimulationResourceTest {
     void deveLancarErro400AoCriarComDadosInvalidos() {
         String payload = """
             {
-                "principal": -100.00,
-                "interestRatePercent": 1.75,
-                "durationMonths": 12
+                "valorInicial": -100.00,
+                "taxaJurosMensal": 1.75,
+                "prazoMeses": 12
             }
             """;
 
@@ -72,9 +72,9 @@ class SimulationResourceTest {
     void deveBuscarSimulacaoPorIdComSucesso() {
         String payload = """
             {
-                "principal": 15000.00,
-                "interestRatePercent": 2.2,
-                "durationMonths": 12
+                "valorInicial": 15000.00,
+                "taxaJurosMensal": 2.2,
+                "prazoMeses": 12
             }
             """;
 
@@ -96,10 +96,10 @@ class SimulationResourceTest {
         .then()
             .statusCode(200)
             .body("id", equalTo(id))
-            .body("principal", equalTo(15000.0f))
-            .body("interestRate", equalTo(0.02200000f))
-            .body("durationMonths", equalTo(12))
-            .body("steps", hasSize(12));
+            .body("valorInicial", equalTo(15000.0f))
+            .body("taxaJurosMensal", equalTo(2.2f))
+            .body("prazoMeses", equalTo(12))
+            .body("memoriaCalculo", hasSize(12));
     }
 
     @Test
