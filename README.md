@@ -198,10 +198,10 @@ A API estará disponível em `http://localhost:8080`.
 
 ## 🧪 Qualidade e Testes Automatizados (TDD & Testes Integrados)
 
-Toda a lógica da camada de domínio foi desenvolvida com foco total em cobertura e qualidade utilizando TDD. Os testes unitários do domínio são puros e executados de forma extremamente rápida, enquanto os testes integrados validam o banco de dados e a orquestração do serviço.
+Toda a lógica da camada de domínio foi desenvolvida com foco total em cobertura e qualidade utilizando TDD. Os testes unitários do domínio são puros e executados de forma extremamente rápida, enquanto os testes integrados validam o banco de dados, a orquestração do serviço, resiliência e as métricas.
 
 ### Executar a Suíte de Testes
-Para executar todos os **32 testes** (23 unitários puros do domínio + 2 testes integrados de banco de dados + 7 testes integrados da camada de serviço):
+Para executar todos os **37 testes** (23 unitários puros do domínio + 2 testes integrados de banco de dados + 11 testes integrados de serviço, resiliência e telemetria):
 ```bash
 ./mvnw clean test
 ```
@@ -212,6 +212,8 @@ Para executar todos os **32 testes** (23 unitários puros do domínio + 2 testes
   * O fluxo feliz de cálculo, persistência e retorno.
   * O lançamento correto de `SimulationNotFoundException` sob chaves inválidas.
   * A propagação de exceções de domínio Fail-Fast do `DomainValidator` sob parâmetros numéricos inválidos antes do banco de dados ser afetado.
+  * O registro em tempo real das métricas customizadas no `MeterRegistry` (counters, summaries, timers e gauge de média).
+* **`SimulationServiceRetryTest`**: Teste isolado e mockado com `@InjectMock` que simula falhas concorrentes e de rede consecutivas no repositório H2 para validar a interceptação, tratamento e recuperação automatizada garantida pela política de `@Retry`.
 
 ### Verificação do JaCoCo (Cobertura > 80%)
 A validação de compilação, empacotamento e integridade dos limites de cobertura do JaCoCo é executada via:
@@ -222,6 +224,59 @@ Nossos testes cobrem **100% de linhas e caminhos lógicos** das classes de domí
 
 ---
 
+## 🛡️ Resiliência (Fault Tolerance) e Observabilidade Customizada
+
+O microsserviço foi enriquecido com capacidades avançadas de resiliência corporativa e telemetria de negócios, mantendo o domínio puro e agnóstico de infraestrutura.
+
+```mermaid
+graph TD
+    subgraph com.simulador.financiamento.service [Camada Service]
+        Service[SimulationService]
+        GaugeAvg["Gauge (Average Interest Rate)"]
+        CounterSims["Counter (simulations_requested_total)"]
+    end
+    subgraph Quarkus / MicroProfile [Mecanismos de Resiliência]
+        Retry["@Retry (3x, delay=100ms)"]
+        Timeout["@Timeout (2s)"]
+    end
+    subgraph H2 Database [Persistência]
+        DB[(H2 Database)]
+    end
+
+    Service --> Retry
+    Retry --> DB
+    Service -. "Atualiza" .-> GaugeAvg
+    Service -. "Atualiza" .-> CounterSims
+```
+
+### 1. Resiliência e Tolerância a Falhas (Fault Tolerance)
+Na classe `SimulationService.java`, decoramos o caso de uso core `simulateAndSave` com políticas robustas de tratamento:
+* **`@Retry(maxRetries = 3, delay = 100, delayUnit = ChronoUnit.MILLIS, abortOn = DomainValidationException.class)`**:
+  * Tolera de forma transparente falhas de infraestrutura transientes (ex: bloqueios de escrita concorrente no banco H2 de arquivo).
+  * **AbortOn (Fail-Fast):** A política aborta imediatamente caso a exceção lançada seja uma `DomainValidationException`. Isso impede retentativas desnecessárias para erros determinísticos de regras de negócio (parâmetros de entrada inválidos).
+* **`@Timeout(value = 2, unit = ChronoUnit.SECONDS)`**:
+  * Protege a aplicação contra congelamento de recursos ou threads em execuções de simulação com volumes de parcelas extraordinariamente longos.
+
+### 2. Observabilidade de Domínio Avançada (Micrometer & Prometheus)
+Implementamos uma telemetria detalhada sobre o comportamento do negócio e performance. Os instrumentos criados e expostos em `/q/metrics` são:
+* **Counter `simulations_requested_total`**:
+  * **Tags:** `status="success" | "validation_failed" | "error"`.
+  * **Objetivo:** Medir o volume de simulações solicitadas e mapear erros de validação e falhas de sistema em tempo real.
+* **DistributionSummary `simulation_principal_brl`**:
+  * **Objetivo:** Histograma dos valores de principal simulados para entender o perfil de crédito dos solicitantes.
+* **DistributionSummary `simulation_duration_months`**:
+  * **Objetivo:** Histograma da distribuição dos prazos das simulações (em meses).
+* **Timer `simulation_calculation_duration_seconds`**:
+  * **Objetivo:** Monitorar o tempo preciso gasto na execução da fórmula matemática da simulação e na gravação no banco.
+* **Gauge `simulation_average_interest_rate_percent`**:
+  * **Objetivo:** Medir a taxa de juros percentual média de todas as simulações em tempo real.
+  * **Resiliência de Inicialização:** Implementamos um método `@PostConstruct` que, ao iniciar o microsserviço, executa uma consulta agregadora (HQL) no H2 para carregar o histórico de simulações anteriores e popular a média inicial do Gauge.
+  * **Concorrência Segura:** O acumulado do Gauge é gerenciado em memória de forma thread-safe utilizando double-bits em `AtomicLong` do JDK, garantindo alta performance sob múltiplas requisições paralelas sem sobrecarga de I/O no banco.
+
+---
+
 ## 📊 Observabilidade e Especificações
-* **Métricas Locais (Micrometer/Prometheus):** `http://localhost:8080/q/metrics`
+* **Métricas do Prometheus (Micrometer):** `http://localhost:8080/q/metrics`
 * **Especificação OpenAPI (SmallRye OpenAPI):** `http://localhost:8080/q/openapi`
+* **Painel da Especificação de Rotas (Scalar):** `http://localhost:8080/` (Arquivos estáticos hospedados em `META-INF/resources`)
+

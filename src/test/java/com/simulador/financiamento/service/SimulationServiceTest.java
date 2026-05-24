@@ -2,6 +2,7 @@ package com.simulador.financiamento.service;
 
 import com.simulador.financiamento.domain.validation.DomainValidationException;
 import com.simulador.financiamento.repository.SimulationEntity;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.DisplayName;
@@ -20,13 +21,18 @@ class SimulationServiceTest {
     @Inject
     SimulationService service;
 
+    @Inject
+    MeterRegistry registry;
+
     @Test
-    @DisplayName("Deve executar uma simulação válida, persistir no banco e retornar a entidade correspondente")
+    @DisplayName("Deve executar uma simulação válida, persistir no banco e registrar métricas de observabilidade")
     void deveExecutarSimulacaoEPersistirComSucesso() {
         // Arrange
         BigDecimal principal = new BigDecimal("25000.00");
         BigDecimal interestRatePercent = new BigDecimal("2.5");
         int durationMonths = 10;
+
+        double initialSuccessCount = registry.counter("simulations_requested_total", "status", "success").count();
 
         // Act
         SimulationEntity result = service.simulateAndSave(principal, interestRatePercent, durationMonths);
@@ -44,6 +50,20 @@ class SimulationServiceTest {
         SimulationEntity retrieved = service.findById(result.getId());
         assertNotNull(retrieved);
         assertEquals(result.getId(), retrieved.getId());
+
+        // Asserções de Observabilidade Customizada
+        double successCountAfter = registry.counter("simulations_requested_total", "status", "success").count();
+        assertEquals(initialSuccessCount + 1, successCountAfter);
+
+        // Verifica se os outros instrumentos de métricas foram registrados e receberam valores
+        assertNotNull(registry.summary("simulation_principal_brl"));
+        assertNotNull(registry.summary("simulation_duration_months"));
+        assertNotNull(registry.timer("simulation_calculation_duration_seconds"));
+
+        // O Gauge deve ser maior que zero (ou possuir um valor válido correspondente)
+        io.micrometer.core.instrument.Gauge avgRateGauge = registry.find("simulation_average_interest_rate_percent").gauge();
+        assertNotNull(avgRateGauge);
+        assertTrue(avgRateGauge.value() > 0.0);
     }
 
     @Test
@@ -91,13 +111,16 @@ class SimulationServiceTest {
         "10000.00, 1.5, 0, 'O prazo em meses deve ser maior que zero'",
         "10000.00, 1.5, -5, 'O prazo em meses deve ser maior que zero'"
     })
-    @DisplayName("Deve propagar exceções de validação de domínio de forma Fail-Fast")
+    @DisplayName("Deve propagar exceções de validação de domínio de forma Fail-Fast e registrar métrica de falha")
     void devePropagarExcecaoDeDominioAoSimularValoresInvalidos(
             BigDecimal principal, 
             BigDecimal interestRatePercent, 
             int durationMonths, 
             String expectedMessagePart
     ) {
+        // Arrange
+        double initialFailedCount = registry.counter("simulations_requested_total", "status", "validation_failed").count();
+
         // Act & Assert
         DomainValidationException exception = assertThrows(
             DomainValidationException.class,
@@ -108,5 +131,9 @@ class SimulationServiceTest {
             exception.getMessage().toLowerCase().contains(expectedMessagePart.toLowerCase()),
             "Mensagem esperada conter: " + expectedMessagePart + " mas foi: " + exception.getMessage()
         );
+
+        // Asserção de métrica de validação de domínio
+        double failedCountAfter = registry.counter("simulations_requested_total", "status", "validation_failed").count();
+        assertEquals(initialFailedCount + 1, failedCountAfter);
     }
 }
