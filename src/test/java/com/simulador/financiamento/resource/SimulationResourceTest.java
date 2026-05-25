@@ -118,4 +118,38 @@ class SimulationResourceTest {
             .body("path", equalTo("/simulacoes/" + nonExistentId))
             .body("timestamp", notNullValue());
     }
+
+    @Test
+    @DisplayName("Deve criar uma simulação de juros simples com sucesso")
+    void deveCriarSimulacaoComJurosSimplesComSucesso() {
+        String payload = """
+            {
+                "valorInicial": 1000.00,
+                "taxaJurosMensal": 10.0,
+                "prazoMeses": 3,
+                "tipoJuros": "SIMPLES"
+            }
+            """;
+
+        given()
+            .contentType(ContentType.JSON)
+            .body(payload)
+        .when()
+            .post("/simulacoes")
+        .then()
+            .statusCode(201)
+            .body("id", notNullValue())
+            .body("valorInicial", equalTo(1000.0f))
+            .body("taxaJurosMensal", equalTo(10.0f))
+            .body("prazoMeses", equalTo(3))
+            .body("valorTotalFinal", equalTo(1300.0f))
+            .body("valorTotalJuros", equalTo(300.0f))
+            .body("memoriaCalculo", hasSize(3))
+            .body("memoriaCalculo[0].mes", equalTo(1))
+            .body("memoriaCalculo[0].juro", equalTo(100.0f))
+            .body("memoriaCalculo[0].saldoFinal", equalTo(1100.0f))
+            .body("memoriaCalculo[2].mes", equalTo(3))
+            .body("memoriaCalculo[2].juro", equalTo(100.0f))
+            .body("memoriaCalculo[2].saldoFinal", equalTo(1300.0f));
+    }
 }

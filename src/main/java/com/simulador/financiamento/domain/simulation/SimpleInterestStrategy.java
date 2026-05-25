@@ -8,19 +8,17 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Implementação da estratégia de juros compostos para evolução de saldos.
- * Aplica a fórmula clássica de capitalização sob o regime de juros compostos:
- * {@code M = C * (1 + i)^t}, onde os juros de cada período são capitalizados e acrescidos
- * ao saldo devedor/principal do período seguinte.
+ * Implementação da estratégia de juros simples para evolução de saldos.
+ * Sob o regime de juros simples, a parcela de juros de cada período é calculada
+ * exclusivamente sobre o capital inicial (principal) original e acumulada periodica e linearmente.
  */
-public final class CompoundInterestStrategy implements InterestCalculationStrategy {
+public final class SimpleInterestStrategy implements InterestCalculationStrategy {
 
     /**
-     * Gera a memória de cálculo mensal sob a sistemática de capitalização composta.
-     * Mês a mês, calcula o juro sobre o saldo inicial daquele período e gera
-     * um novo saldo final imutável para servir de saldo inicial do período subsequente.
+     * Gera a memória de cálculo mensal sob a sistemática de capitalização simples.
+     * Mês a mês, calcula o juro fixo com base no principal original e acumula-o linearmente.
      * 
-     * @param principal O valor inicial do financiamento ou aporte.
+     * @param principal O valor inicial do financiamento ou aporte (capital inicial).
      * @param monthlyRate A taxa de juros a ser aplicada a cada período mensal.
      * @param durationMonths O número total de períodos (meses) da simulação.
      * @return Uma lista imutável com a memória de evolução detalhada contendo {@link SimulationStep}s.
@@ -34,12 +32,13 @@ public final class CompoundInterestStrategy implements InterestCalculationStrate
 
         List<SimulationStep> steps = new ArrayList<>();
         Money currentBalance = principal;
+        
+        // Em juros simples, o valor do juro de cada mês é constante e calculado sobre o principal original
+        Money constantInterestAmount = principal.multiply(monthlyRate.decimalValue());
 
         for (int month = 1; month <= durationMonths; month++) {
-            Money interestAmount = currentBalance.multiply(monthlyRate.decimalValue());
-            Money finalBalance = currentBalance.add(interestAmount);
-
-            steps.add(new SimulationStep(month, currentBalance, interestAmount, finalBalance));
+            Money finalBalance = currentBalance.add(constantInterestAmount);
+            steps.add(new SimulationStep(month, currentBalance, constantInterestAmount, finalBalance));
             currentBalance = finalBalance;
         }
 

@@ -16,5 +16,8 @@ public record SimulationRequest(
     BigDecimal taxaJurosMensal,
 
     @Schema(description = "Prazo total do financiamento expresso em meses", examples = {"12"}, required = true)
-    int prazoMeses
+    int prazoMeses,
+
+    @Schema(description = "Regime de capitalização de juros da simulação (SIMPLES ou COMPOSTO). Se omitido, aplica-se COMPOSTO por padrão.", examples = {"COMPOSTO"}, required = false)
+    String tipoJuros
 ) {}

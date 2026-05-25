@@ -9,8 +9,10 @@ import java.util.List;
  * de um financiamento ou investimento ao longo do tempo.
  * Implementa o padrão de projeto Strategy para permitir a fácil alternância entre
  * diferentes regimes de amortização ou juros (ex: juros compostos, juros simples, SAC, Price).
+ * 
+ * Declarada como sealed interface Java 25 para blindar o conjunto de estratégias permitidas.
  */
-public interface InterestCalculationStrategy {
+public sealed interface InterestCalculationStrategy permits CompoundInterestStrategy, SimpleInterestStrategy {
 
     /**
      * Calcula a memória de cálculo evolutiva do financiamento mês a mês com base

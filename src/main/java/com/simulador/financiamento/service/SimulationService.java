@@ -3,6 +3,8 @@ package com.simulador.financiamento.service;
 import com.simulador.financiamento.domain.shared.InterestRate;
 import com.simulador.financiamento.domain.shared.Money;
 import com.simulador.financiamento.domain.simulation.CompoundInterestStrategy;
+import com.simulador.financiamento.domain.simulation.SimpleInterestStrategy;
+import com.simulador.financiamento.domain.simulation.InterestCalculationStrategy;
 import com.simulador.financiamento.domain.simulation.Simulation;
 import com.simulador.financiamento.domain.validation.DomainValidationException;
 import com.simulador.financiamento.repository.SimulationEntity;
@@ -76,10 +78,7 @@ public class SimulationService {
 
     /**
      * Orquestra a simulação de um financiamento utilizando juros compostos e
-     * persiste o agregado correspondente no banco de dados.
-     * 
-     * Aplica políticas de Fault Tolerance para tratamento de concorrência concorrente 
-     * H2 (@Retry) e limite de duração do processo (@Timeout).
+     * persiste o agregado correspondente no banco de dados (Método retrocompatível).
      * 
      * @param principal O valor de principal solicitado.
      * @param interestRatePercent A taxa de juros percentual ao mês (ex: 1.5 para 1.5%).
@@ -87,21 +86,38 @@ public class SimulationService {
      * @return A entidade persistida {@link SimulationEntity} contendo os dados e a memória de cálculo.
      */
     @Transactional
+    public SimulationEntity simulateAndSave(BigDecimal principal, BigDecimal interestRatePercent, int durationMonths) {
+        return simulateAndSave(principal, interestRatePercent, durationMonths, "COMPOSTO");
+    }
+
+    /**
+     * Orquestra a simulação de um financiamento utilizando o regime de capitalização solicitado.
+     * 
+     * Aplica políticas de Fault Tolerance para tratamento de concorrência concorrente 
+     * H2 (@Retry) e limite de duração do processo (@Timeout).
+     */
+    @Transactional
     @Retry(maxRetries = 3, delay = 100, delayUnit = ChronoUnit.MILLIS, abortOn = DomainValidationException.class)
     @Timeout(value = 2, unit = ChronoUnit.SECONDS)
-    public SimulationEntity simulateAndSave(BigDecimal principal, BigDecimal interestRatePercent, int durationMonths) {
+    public SimulationEntity simulateAndSave(BigDecimal principal, BigDecimal interestRatePercent, int durationMonths, String tipoJuros) {
         long startTime = System.nanoTime();
         try {
             // Converte e valida de forma Fail-Fast os parâmetros brutos em Value Objects de domínio
             Money moneyPrincipal = new Money(principal);
             InterestRate rate = InterestRate.fromPercentual(interestRatePercent);
 
+            // Seleção de estratégia usando switch expression moderna do Java 25
+            InterestCalculationStrategy strategy = switch (tipoJuros != null ? tipoJuros.toUpperCase() : "COMPOSTO") {
+                case "SIMPLES" -> new SimpleInterestStrategy();
+                default -> new CompoundInterestStrategy();
+            };
+
             // Executa o cálculo financeiro no agregado de domínio rico
             Simulation domainSimulation = Simulation.execute(
                 moneyPrincipal, 
                 rate, 
                 durationMonths, 
-                new CompoundInterestStrategy()
+                strategy
             );
 
             // Converte o agregado de domínio para a entidade de persistência JPA

@@ -197,20 +197,94 @@ Seguindo estritamente as regras de **DDD Pragmático** e as especificações de 
 > 
 > 
 
-### 1. Payload de Entrada (Simular Financiamento)
+### 1. Criar Simulação (Simular Financiamento)
 
 * **Rota:** `POST /simulacoes`
-* **JSON de Entrada:**
+* **Descrição:** Recebe as variáveis do financiamento, aplica a fórmula financeira correspondente (Juros Simples ou Compostos), gera a memória de cálculo evolutiva detalhada passo a passo e persiste o registro no banco de dados H2.
+* **Corpo da Requisição (`SimulationRequest`):**
+  * `valorInicial` (Decimal): O valor do principal solicitado (ex: `1000.00`). Deve ser estritamente positivo.
+  * `taxaJurosMensal` (Decimal): A taxa percentual ao mês (ex: `1.5` para 1,5%). Deve ser não-negativa.
+  * `prazoMeses` (Inteiro): O número de meses de vigência (ex: `12`). Deve ser estritamente maior que zero.
+  * `tipoJuros` (String, Opcional): Define o regime matemático de cálculo. Valores aceitos: `SIMPLES` ou `COMPOSTO`. Se omitido, assume-se `COMPOSTO` por padrão.
+
+#### Exemplo de Envio (Payload de Entrada):
 ```json
 {
     "valorInicial": 1000.00,
     "taxaJurosMensal": 1.5,
-    "prazoMeses": 12
+    "prazoMeses": 12,
+    "tipoJuros": "COMPOSTO"
 }
-
 ```
 
+#### Exemplo de Resposta de Sucesso (HTTP 201 Created):
+* **Cabeçalhos de Resposta:** `Location: /simulacoes/550e8400-e29b-41d4-a716-446655440000`
+* **JSON Retornado (`SimulationResponse`):**
+```json
+{
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "valorInicial": 1000.00,
+    "taxaJurosMensal": 1.5,
+    "prazoMeses": 12,
+    "valorTotalFinal": 1195.62,
+    "valorTotalJuros": 195.62,
+    "memoriaCalculo": [
+        {
+            "mes": 1,
+            "saldoInicial": 1000.00,
+            "juro": 15.00,
+            "saldoFinal": 1015.00
+        },
+        {
+            "mes": 2,
+            "saldoInicial": 1015.00,
+            "juro": 15.23,
+            "saldoFinal": 1030.23
+        },
+        {
+            "mes": 12,
+            "saldoInicial": 1177.95,
+            "juro": 17.67,
+            "saldoFinal": 1195.62
+        }
+    ]
+}
+```
 
+#### Exemplo de Erro de Validação (HTTP 400 Bad Request):
+Ocorre quando alguma invariante do domínio é quebrada (ex: `prazoMeses = -5` ou `valorInicial = 0`). O mapeamento de exceção intercepta a quebra de contrato do domínio (`DomainValidationException`) e responde de forma limpa:
+```json
+{
+    "timestamp": "2026-05-25T12:00:00.123",
+    "status": 400,
+    "error": "Bad Request",
+    "message": "O prazo em meses deve ser estritamente maior que zero.",
+    "path": "/simulacoes"
+}
+```
+
+---
+
+### 2. Consultar Simulação Existente
+
+* **Rota:** `GET /simulacoes/{id}`
+* **Descrição:** Recupera uma simulação e sua respectiva memória de cálculo persistida anteriormente na base H2 através do seu UUID de identificação exclusiva.
+* **Parâmetro de Path:** `{id}` (UUID em formato de texto, ex: `550e8400-e29b-41d4-a716-446655440000`).
+
+#### Exemplo de Resposta de Sucesso (HTTP 200 OK):
+Retorna a estrutura completa descrita no `SimulationResponse` (idêntica à de retorno de sucesso do `POST`).
+
+#### Exemplo de Erro (HTTP 404 Not Found):
+Disparado de forma limpa e graciosa caso o UUID não corresponda a nenhum registro de simulação gravado no banco de dados relacional:
+```json
+{
+    "timestamp": "2026-05-25T12:05:00.456",
+    "status": 404,
+    "error": "Not Found",
+    "message": "Simulação não localizada para o identificador fornecido: 550e8400-e29b-41d4-a716-446655440000",
+    "path": "/simulacoes/550e8400-e29b-41d4-a716-446655440000"
+}
+```
 
 ---
 
@@ -242,55 +316,72 @@ A API estará disponível em `http://localhost:8080`.
 
 ## 🧪 Qualidade e Testes Automatizados (TDD & Testes Integrados)
 
-Toda a lógica da camada de domínio foi desenvolvida com foco total em cobertura e qualidade utilizando TDD. Os testes unitários do domínio são puros e executados de forma extremamente rápida, enquanto os testes integrados validam o banco de dados, a orquestração do serviço, resiliência e as métricas.
+Toda a lógica da camada de domínio foi desenvolvida com foco total em cobertura e qualidade utilizando TDD. Os testes unitários do domínio são puros e executados de forma extremamente rápida, enquanto os testes integrados validam o banco de dados, a orquestração do serviço, resiliência, a especificação OpenAPI e as métricas.
 
 ### Executar a Suíte de Testes
-
-Para executar todos os **37 testes**:
-
+Para executar todos os **42 testes** (27 unitários puros do domínio + 2 testes integrados de banco de dados + 13 testes integrados de serviço, resiliência e telemetria):
 ```bash
 ./mvnw clean test
-
 ```
+
+### Principais Suítes de Testes
+* **`CompoundInterestStrategyTest` / `SimpleInterestStrategyTest`**: Validam a exatidão matemática estrita de juros compostos e simples em cenários de borda.
+* **`SimulationRepositoryTest`**: Valida a persistência em cascata e deleção relacional no H2.
+* **`SimulationServiceTest`**: Garante a orquestração, regras fail-fast de domínio, e registro correto de contadores e sumários no `MeterRegistry`.
+* **`SimulationServiceRetryTest`**: Simula falhas e locks transientes de escrita concorrente no H2 para validar a recuperação e re-tentativa transparente promovida pelo `@Retry`.
+* **`SimulationResourceTest`**: Valida os contratos HTTP/JSON na ponta REST (JAX-RS/RestAssured), testando as rotas POST e GET com chaves em português estrito e regimes de juros composto e simples.
 
 ### Verificação do JaCoCo (Cobertura > 80%)
-
 ```bash
 ./mvnw clean verify
-
 ```
-
 Nossos testes cobrem **100% de linhas e caminhos lógicos** das classes de domínio, persistência e serviço, superando amplamente a barreira eliminatória de 80% estabelecida no projeto.
 
 ---
+
 ## 🛡️ Resiliência (Fault Tolerance) e Observabilidade (Overdelivery / Além do Edital)
 
-O edital exige a estruturação de um código limpo com camadas bem definidas (Resource -> Service -> Repository) , foco em precisão financeira utilizando tipos de alta precisão como o `BigDecimal` e rigor na cobertura de testes automatizados. O microsserviço atende a 100% desses critérios.
+O edital exige a estruturação de um código limpo com camadas bem definidas, foco em precisão financeira utilizando `BigDecimal` e rigor na cobertura de testes. O microsserviço atende a 100% desses critérios.
 
-No entanto, para demonstrar maturidade arquitetural e visão de produto B2B (nível Sênior/Especialista), o projeto foi enriquecido com capacidades avançadas de resiliência e telemetria de negócios, mantendo o domínio puro e agnóstico de infraestrutura.
+No entanto, para demonstrar maturidade arquitetural e visão de produto B2B pronto para ambientes produtivos complexos (nível Sênior/Especialista), o projeto foi enriquecido com recursos de resiliência corporativa, Java 25 avançado e observabilidade robusta:
 
-> **💡 Justificativa Arquitetural (Overdelivery Estratégico):** O edital não exige telemetria ou tolerância a falhas. No entanto, em um ambiente de produção real, um simulador financeiro é o coração da originação de crédito. Decidimos incluir **Micrometer/Prometheus** e **SmallRye Fault Tolerance** para provar que a aplicação não apenas calcula juros corretamente, mas está pronta para ser operada, auditada e para sobreviver a anomalias de rede ou banco de dados sem degradar a experiência do cliente.
+### 1. Java 25: Sealed Classes, Pattern Matching & Switch Expressions
+* **`Sealed Interface` (`InterestCalculationStrategy`)**:
+  * Blindamos o conjunto de estratégias matemáticas permitidas usando a diretiva `permits` do Java 25:
+    `public sealed interface InterestCalculationStrategy permits CompoundInterestStrategy, SimpleInterestStrategy`
+* **Switch Expressions modernas**:
+  * No `SimulationService`, a escolha e instanciação dinâmica do algoritmo de capitalização (`SimpleInterestStrategy` ou `CompoundInterestStrategy`) são feitas via switch expression do Java 25, garantindo legibilidade e segurança estática.
 
-### 1. Resiliência e Tolerância a Falhas (Fault Tolerance)
+### 2. Resiliência e Tolerância a Falhas (Fault Tolerance)
+Na classe `SimulationService.java`, decoramos o caso de uso core `simulateAndSave` com políticas do MicroProfile Fault Tolerance:
+* **`@Retry(maxRetries = 3, delay = 100, delayUnit = ChronoUnit.MILLIS, abortOn = DomainValidationException.class)`**: Tolera falhas concorrentes ou travas de escrita transientes no banco H2. O *Fail-Fast* no `abortOn` impede repetições desnecessárias para violações determinísticas de regras de negócio.
+* **`@Timeout(value = 2, unit = ChronoUnit.SECONDS)`**: Protege contra o esgotamento de *threads* ou congelamento sob cargas extraordinárias.
 
-Na classe `SimulationService.java`, decoramos o caso de uso core `simulateAndSave` com políticas robustas de tratamento:
+### 3. Segurança e Prevenção de Vazamento de Stacktraces (Global Error Handler)
+* **`GlobalExceptionMapper`**:
+  * Implementamos um provedor global anotado com `@Provider` que intercepta qualquer erro inesperado do servidor (erros 500). 
+  * O mapper registra o erro nos logs seguros do servidor e retorna um JSON limpo formatado no padrão `ErrorResponse`, impedindo que stacktraces brutos exponham informações internas do banco H2, infraestrutura ou segredos de código para os clientes.
 
-* **`@Retry(maxRetries = 3, delay = 100, delayUnit = ChronoUnit.MILLIS, abortOn = DomainValidationException.class)`**: Tolera falhas de infraestrutura transientes. O *Fail-Fast* no `abortOn` impede repetições de regras de negócio incorretas.
-* **`@Timeout(value = 2, unit = ChronoUnit.SECONDS)`**: Protege contra o esgotamento de *threads*.
+### 4. Prontidão para Kubernetes (Health Checks Cloud-Native)
+Adicionamos suporte nativo para orquestradores modernos controlarem a saúde do microsserviço via extensão `quarkus-smallrye-health`:
+* **Liveness Check (/q/health/live)**:
+  * Implementado em `SystemHealthCheck.java`. Avalia se a JVM possui recursos de memória heap livre para continuar executando.
+* **Readiness Check (/q/health/ready)**:
+  * Implementado em `DatabaseHealthCheck.java`. Testa ativamente a prontidão de conectividade com a base relacional H2.
 
-### 2. Observabilidade de Domínio Avançada (Micrometer & Prometheus)
-
+### 5. Observabilidade de Domínio Avançada (Micrometer & Prometheus)
 Implementamos uma telemetria detalhada sobre o comportamento do negócio e performance em `/q/metrics`:
+* **Counter `simulations_requested_total`**: Mede o volume de simulações com tags de status (`success`, `validation_failed`, `error`).
+* **DistributionSummary `simulation_principal_brl`**: Histograma dos valores de principal para análise do perfil de crédito dos simulantes.
+* **DistributionSummary `simulation_duration_months`**: Histograma de distribuição de prazos mensais.
+* **Timer `simulation_calculation_duration_seconds`**: Mede a latência precisa da evolução de parcelas.
+* **Gauge `simulation_average_interest_rate_percent`**: Mede a taxa média das simulações, populando seu estado inicial com HQL agregadora no `@PostConstruct` de forma thread-safe (via bits de `AtomicLong`).
 
-* **Counter `simulations_requested_total**`: Medir o volume de simulações e status.
-* **DistributionSummary `simulation_principal_brl**`: Histograma dos valores de principal para análise do perfil de crédito.
-* **DistributionSummary `simulation_duration_months**`: Histograma de prazos.
-* **Timer `simulation_calculation_duration_seconds**`: Mede a performance matemática e de I/O.
-* **Gauge `simulation_average_interest_rate_percent**`: Mede a taxa média do negócio, carregando histórico prévio no `@PostConstruct` de forma thread-safe.
 ---
 
 ## 📊 Observabilidade e Especificações
 
 * **Métricas do Prometheus (Micrometer):** `http://localhost:8080/q/metrics`
+* **Health Checks (Liveness/Readiness):** `http://localhost:8080/q/health`
 * **Especificação OpenAPI (SmallRye OpenAPI):** `http://localhost:8080/q/openapi`
 * **Painel da Especificação de Rotas (Scalar):** `http://localhost:8080/` (Arquivos estáticos hospedados em `META-INF/resources`)

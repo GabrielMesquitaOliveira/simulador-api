@@ -87,7 +87,8 @@ public class SimulationResource {
         SimulationEntity entity = service.simulateAndSave(
             request.valorInicial(),
             request.taxaJurosMensal(),
-            request.prazoMeses()
+            request.prazoMeses(),
+            request.tipoJuros()
         );
 
         // Mapeia a entidade JPA mutável para o DTO imutável SimulationResponse
